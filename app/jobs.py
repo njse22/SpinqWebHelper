@@ -13,6 +13,8 @@ Si no existe una variable llamada "circuit", se busca automáticamente una
 única variable de tipo Circuit/QuantumCircuit en el código.
 """
 
+import base64
+import os
 import requests
 from urllib.parse import urlparse
 
@@ -22,6 +24,14 @@ try:
     from spinqit import Circuit, get_compiler, get_nmr, NMRConfig
 except Exception:  # pragma: no cover
     Circuit = None
+
+try:
+    from spinqit import view
+except Exception:  # pragma: no cover
+    try:
+        import spinqit.view as view
+    except Exception:  # pragma: no cover
+        view = None
 
 try:
     from spinqit.qiskit.circuit import QuantumCircuit
@@ -112,6 +122,35 @@ def execute_circuit(code: str, job_id: str, resume_url: str = None):
 
     exe = get_compiler(compiler).compile(circuit, 0)
 
+    circuit_image = None
+    if view is not None and hasattr(view, "draw"):
+        img_path = f"/tmp/circuit_{job_id}.png"
+        try:
+            view.draw(exe, img_path)
+            if os.path.exists(img_path):
+                with open(img_path, "rb") as f:
+                    img_bytes = f.read()
+                if img_bytes:
+                    circuit_image = f"data:image/png;base64,{base64.b64encode(img_bytes).decode('utf-8')}"
+                try:
+                    import shutil
+                    shutil.copyfile(img_path, "./circuit.png")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        finally:
+            if os.path.exists(img_path):
+                try:
+                    os.remove(img_path)
+                except Exception:
+                    pass
+            try:
+                import matplotlib.pyplot as plt
+                plt.close("all")
+            except Exception:
+                pass
+
     engine = get_nmr()
     nmr_config = NMRConfig()
     nmr_config.configure_shots(shots)
@@ -128,6 +167,7 @@ def execute_circuit(code: str, job_id: str, resume_url: str = None):
         "shots": shots,
         "counts": _to_jsonable(getattr(result, "counts", None)),
         "probabilities": _to_jsonable(getattr(result, "probabilities", None)),
+        "circuit_image": circuit_image,
     }
 
     if resume_url:

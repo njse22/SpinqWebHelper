@@ -1,5 +1,6 @@
 """API FastAPI: encola jobs NMR y expone su estado/resultado."""
 
+import base64
 import csv
 import io
 import os
@@ -151,3 +152,41 @@ def get_job_csv(job_id: str):
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="resultado_{job_id}.csv"'},
     )
+
+
+@app.get("/jobs/{job_id}/circuit.png")
+def get_job_circuit_image(job_id: str):
+    queue = get_queue()
+    job = queue.fetch_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job no encontrado.")
+
+    status = _job_status(job)
+    if status != "finished":
+        raise HTTPException(
+            status_code=400,
+            detail=f"El job aún no ha terminado (estado: {status}).",
+        )
+
+    try:
+        result = job.return_value() or {}
+    except Exception:
+        result = {}
+
+    circuit_image = result.get("circuit_image")
+    if not circuit_image:
+        raise HTTPException(status_code=404, detail="No hay imagen de circuito disponible para este job.")
+
+    if circuit_image.startswith("data:image/png;base64,"):
+        b64_data = circuit_image.split(",", 1)[1]
+        try:
+            img_bytes = base64.b64decode(b64_data)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Error decodificando imagen de circuito.")
+        return Response(
+            content=img_bytes,
+            media_type="image/png",
+            headers={"Content-Disposition": f'inline; filename="circuit_{job_id}.png"'},
+        )
+
+    raise HTTPException(status_code=500, detail="Formato de imagen inválido.")

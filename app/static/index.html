@@ -143,6 +143,53 @@
     border-color: var(--accent);
     background: #0b1220;
   }
+  .chart-card {
+    background: #0b1220;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 0.5rem 0.5rem;
+    margin: 1rem 0;
+  }
+  .chart-card svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    max-height: 290px;
+  }
+  .chart-bar {
+    transition: filter .15s;
+    cursor: pointer;
+  }
+  .chart-bar:hover {
+    filter: brightness(1.25);
+  }
+  .circuit-card {
+    background: #0b1220;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem;
+    margin: 1rem 0;
+  }
+  .circuit-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.6rem;
+  }
+  .circuit-img-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow-x: auto;
+    background: #ffffff;
+    border-radius: 8px;
+    padding: 0.75rem;
+  }
+  .circuit-img-container img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+  }
   #meta { color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0 0; }
 </style>
 </head>
@@ -178,6 +225,18 @@
       <button id="downloadCsv" type="button" class="btn-secondary">⬇ Descargar en CSV</button>
     </div>
     <p id="meta"></p>
+    <div id="circuitImageCard" class="circuit-card" hidden>
+      <div class="circuit-header">
+        <h3 style="margin: 0; font-size: 0.95rem; color: var(--muted);">Circuito ejecutado</h3>
+        <a id="downloadCircuitImg" href="#" download="circuit.png" class="btn-secondary" style="font-size: 0.8rem; padding: 0.35rem 0.75rem;">⬇ Guardar imagen</a>
+      </div>
+      <div class="circuit-img-container">
+        <img id="circuitImg" src="" alt="Circuito cuántico ejecutado">
+      </div>
+    </div>
+    <div class="chart-card">
+      <svg id="chartSvg" viewBox="0 0 600 280" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Gráfico de barras de counts por estado"></svg>
+    </div>
     <table>
       <thead><tr><th>Estado</th><th>Counts</th><th>Probabilidad</th></tr></thead>
       <tbody id="tbody"></tbody>
@@ -197,6 +256,9 @@
   const meta = document.getElementById('meta');
   const tbody = document.getElementById('tbody');
   const downloadCsvBtn = document.getElementById('downloadCsv');
+  const circuitImageCard = document.getElementById('circuitImageCard');
+  const circuitImg = document.getElementById('circuitImg');
+  const downloadCircuitImg = document.getElementById('downloadCircuitImg');
 
   let code = null;
   let currentResult = null;
@@ -296,9 +358,21 @@
       ' · compiler: ' + result.compiler +
       ' · shots: ' + result.shots;
 
+    if (result.circuit_image) {
+      circuitImg.src = result.circuit_image;
+      downloadCircuitImg.href = result.circuit_image;
+      downloadCircuitImg.download = result.job_id ? `circuit_${result.job_id}.png` : 'circuit.png';
+      circuitImageCard.hidden = false;
+    } else {
+      circuitImageCard.hidden = true;
+      circuitImg.src = '';
+    }
+
     const counts = result.counts || {};
     const probs = result.probabilities || {};
     const keys = Object.keys(counts).length ? Object.keys(counts) : Object.keys(probs);
+
+    renderChart(keys, counts, probs, result.shots);
 
     tbody.innerHTML = '';
     keys.forEach(k => {
@@ -311,6 +385,110 @@
     });
 
     resultBox.hidden = false;
+  }
+
+  function renderChart(keys, counts, probs, shots) {
+    const svg = document.getElementById('chartSvg');
+    if (!svg) return;
+
+    if (!keys || keys.length === 0) {
+      svg.innerHTML = '<text x="300" y="140" fill="var(--muted)" font-size="13" text-anchor="middle">Sin datos para graficar</text>';
+      return;
+    }
+
+    const padLeft = 60;
+    const padRight = 20;
+    const padTop = 32;
+    const padBottom = 42;
+    const plotW = 600 - padLeft - padRight;
+    const plotH = 280 - padTop - padBottom;
+
+    // Obtener valores numéricos de counts
+    const values = keys.map(k => {
+      if (counts && counts[k] !== undefined && counts[k] !== null) {
+        return Number(counts[k]) || 0;
+      }
+      if (probs && probs[k] !== undefined && probs[k] !== null) {
+        return Math.round((Number(probs[k]) || 0) * (Number(shots) || 1024));
+      }
+      return 0;
+    });
+
+    const maxVal = Math.max(...values, 0);
+    let niceMax;
+    if (maxVal <= 0) {
+      niceMax = 10;
+    } else {
+      const headroom = maxVal * 1.15;
+      const step = Math.pow(10, Math.floor(Math.log10(headroom)));
+      let unit;
+      if (headroom / step < 2) unit = step / 5;
+      else if (headroom / step < 5) unit = step / 2;
+      else unit = step;
+      niceMax = Math.ceil(headroom / unit) * unit;
+    }
+
+    let parts = [];
+    parts.push(`
+      <defs>
+        <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#818cf8"/>
+          <stop offset="100%" stop-color="#38bdf8"/>
+        </linearGradient>
+      </defs>
+    `);
+
+    // Título eje Y
+    parts.push(`<text x="${padLeft}" y="${padTop - 12}" fill="var(--muted)" font-size="11" font-weight="600">Counts</text>`);
+
+    // Líneas de cuadrícula y ticks del eje Y (4 divisiones)
+    const numTicks = 4;
+    for (let t = 0; t <= numTicks; t++) {
+      const val = Math.round((niceMax / numTicks) * t);
+      const y = padTop + plotH - (val / niceMax) * plotH;
+      const isBase = (t === 0);
+      parts.push(`
+        <line x1="${padLeft}" y1="${y}" x2="${padLeft + plotW}" y2="${y}"
+              stroke="var(--border)"
+              stroke-dasharray="${isBase ? 'none' : '3,3'}"
+              stroke-width="${isBase ? '1.5' : '1'}"/>
+        <text x="${padLeft - 8}" y="${y + 4}" fill="var(--muted)" font-size="11" text-anchor="end">${val}</text>
+      `);
+    }
+
+    // Barras y etiquetas del eje X (Estados)
+    const N = keys.length;
+    const step = plotW / N;
+    const barW = Math.min(step * 0.55, 54);
+
+    keys.forEach((k, i) => {
+      const val = values[i];
+      const barH = niceMax > 0 ? (val / niceMax) * plotH : 0;
+      const centerX = padLeft + (i + 0.5) * step;
+      const barX = centerX - barW / 2;
+      const barY = padTop + plotH - barH;
+
+      const probText = (probs && probs[k] !== undefined && probs[k] !== null)
+        ? ` (${(Number(probs[k]) * 100).toFixed(2)}%)`
+        : '';
+
+      parts.push(`
+        <g class="chart-group">
+          <rect class="chart-bar" x="${barX}" y="${barY}" width="${barW}" height="${barH}" rx="4" ry="4" fill="url(#barGrad)">
+            <title>Estado: ${k}&#10;Counts: ${val}${probText}</title>
+          </rect>
+          <text x="${centerX}" y="${barY - 6}" fill="var(--text)" font-size="11" font-weight="600" text-anchor="middle">${val}</text>
+          <text x="${centerX}" y="${padTop + plotH + 18}" fill="var(--accent)" font-size="12" font-weight="600" font-family="monospace" text-anchor="middle">${k}</text>
+        </g>
+      `);
+    });
+
+    // Título eje X
+    parts.push(`
+      <text x="${padLeft + plotW / 2}" y="${padTop + plotH + 36}" fill="var(--muted)" font-size="11" font-weight="600" text-anchor="middle">Estados</text>
+    `);
+
+    svg.innerHTML = parts.join('');
   }
 
   function escapeCsvCell(val) {
