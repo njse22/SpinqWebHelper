@@ -117,6 +117,32 @@
     text-align: center;
   }
   th { background: #0b1220; }
+  .result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 0.25rem;
+  }
+  .btn-secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .btn-secondary:hover {
+    border-color: var(--accent);
+    background: #0b1220;
+  }
   #meta { color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0 0; }
 </style>
 </head>
@@ -147,7 +173,10 @@
   </section>
 
   <section class="card" id="result" hidden>
-    <h2 style="margin-top:0">Resultado</h2>
+    <div class="result-header">
+      <h2 style="margin: 0">Resultado</h2>
+      <button id="downloadCsv" type="button" class="btn-secondary">⬇ Descargar en CSV</button>
+    </div>
     <p id="meta"></p>
     <table>
       <thead><tr><th>Estado</th><th>Counts</th><th>Probabilidad</th></tr></thead>
@@ -167,8 +196,10 @@
   const resultBox = document.getElementById('result');
   const meta = document.getElementById('meta');
   const tbody = document.getElementById('tbody');
+  const downloadCsvBtn = document.getElementById('downloadCsv');
 
   let code = null;
+  let currentResult = null;
 
   fileInput.addEventListener('change', (e) => {
     const f = e.target.files[0];
@@ -260,6 +291,7 @@
   }
 
   function render(result) {
+    currentResult = result;
     meta.textContent = 'job_id: ' + result.job_id +
       ' · compiler: ' + result.compiler +
       ' · shots: ' + result.shots;
@@ -280,6 +312,40 @@
 
     resultBox.hidden = false;
   }
+
+  function escapeCsvCell(val) {
+    if (val === null || val === undefined) return '';
+    const str = String(val);
+    if (/[",\r\n]/.test(str)) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  }
+
+  downloadCsvBtn.addEventListener('click', () => {
+    if (!currentResult) return;
+    const counts = currentResult.counts || {};
+    const probs = currentResult.probabilities || {};
+    const keys = Object.keys(counts).length ? Object.keys(counts) : Object.keys(probs);
+
+    const rows = [["Estado", "Counts", "Probabilidad"]];
+    keys.forEach(k => {
+      const c = (counts[k] !== undefined && counts[k] !== null) ? counts[k] : '';
+      const p = (probs[k] !== undefined && probs[k] !== null) ? probs[k] : '';
+      rows.push([k, c, p]);
+    });
+
+    const csvContent = "\uFEFF" + rows.map(r => r.map(escapeCsvCell).join(',')).join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = currentResult.job_id ? `resultado_${currentResult.job_id}.csv` : 'resultado.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
 </script>
 </body>
 </html>

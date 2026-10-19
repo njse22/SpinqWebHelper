@@ -1,5 +1,7 @@
 """API FastAPI: encola jobs NMR y expone su estado/resultado."""
 
+import csv
+import io
 import os
 import uuid
 from typing import Optional
@@ -7,7 +9,7 @@ from typing import Optional
 import redis
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from rq import Queue
@@ -106,3 +108,46 @@ def get_job(job_id: str):
         payload["error"] = _job_error(job)
 
     return payload
+
+
+@app.get("/jobs/{job_id}/csv")
+def get_job_csv(job_id: str):
+    queue = get_queue()
+    job = queue.fetch_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job no encontrado.")
+
+    status = _job_status(job)
+    if status != "finished":
+        raise HTTPException(
+            status_code=400,
+            detail=f"El job aún no ha terminado (estado: {status}).",
+        )
+
+    try:
+        result = job.return_value() or {}
+    except Exception:
+        result = {}
+
+    counts = result.get("counts") or {}
+    probs = result.get("probabilities") or {}
+    keys = list(counts.keys()) if counts else list(probs.keys())
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Estado", "Counts", "Probabilidad"])
+    for k in keys:
+        c = counts.get(k)
+        if c is None:
+            c = ""
+        p = probs.get(k)
+        if p is None:
+            p = ""
+        writer.writerow([k, c, p])
+
+    csv_data = "\ufeff" + output.getvalue()
+    return Response(
+        content=csv_data,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="resultado_{job_id}.csv"'},
+    )

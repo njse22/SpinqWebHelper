@@ -11,7 +11,7 @@ def _int(name: str, default: int) -> int:
 
 
 # --- Conexión al equipo NMR (nunca hardcodear en el código del usuario) ---
-NMR_IP = os.getenv("NMR_IP", "10.10.89.177")
+NMR_IP = os.getenv("NMR_IP", "10.10.94.171")
 NMR_PORT = _int("NMR_PORT", 8989)
 NMR_USER = os.getenv("NMR_USER", "SpinQ001")
 NMR_PASS = os.getenv("NMR_PASS", "123456")
