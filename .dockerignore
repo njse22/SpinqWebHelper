@@ -1,0 +1,6 @@
+.env
+README.md
+n8n-workflow.json
+.git
+__pycache__
+*.pyc

@@ -1,0 +1,67 @@
+{
+  "name": "SpinQit NMR - Ejecutar circuito",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quantum",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "3f8a5c1e-2b4d-4a1f-9c3e-7d2a1b5f6e90",
+      "name": "Recibir circuito",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://quantum-api:8000/execute",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ code: $json.body.code, resume_url: $execution.resumeUrl }) }}",
+        "options": {}
+      },
+      "id": "6b1d2e4f-8c3a-4d5e-9f0a-1b2c3d4e5f60",
+      "name": "Enviar a ejecutar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {}
+      },
+      "id": "9c4e7f2a-1d3b-4c5e-8f6a-2b3c4d5e6f71",
+      "name": "Esperar resultado",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const c=$json.counts||{};const p=$json.probabilities||{};const keys=Object.keys(c).length?Object.keys(c):Object.keys(p);const rows=keys.map(k=>`<tr><td>${k}</td><td>${c[k]??'-'}</td><td>${p[k]??'-'}</td></tr>`).join('');const html=`<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Resultado NMR</title><style>body{font-family:sans-serif;padding:2rem}table{border-collapse:collapse}th,td{border:1px solid #ccc;padding:.5rem 1rem;text-align:center}th{background:#f0f0f0}</style></head><body><h1>Resultado de ejecución</h1><p>job_id: ${$json.job_id??'-'}</p><table><thead><tr><th>Estado</th><th>Counts</th><th>Probabilidad</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;return [{json:{html:html,job_id:$json.job_id,counts:c,probabilities:p}}];"
+      },
+      "id": "1a7c3e5d-9f2b-4d6e-8a0c-3d4e5f6a7b82",
+      "name": "Generar HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Recibir circuito": {
+      "main": [[{ "node": "Enviar a ejecutar", "type": "main", "index": 0 }]]
+    },
+    "Enviar a ejecutar": {
+      "main": [[{ "node": "Esperar resultado", "type": "main", "index": 0 }]]
+    },
+    "Esperar resultado": {
+      "main": [[{ "node": "Generar HTML", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {},
+  "pinData": {}
+}

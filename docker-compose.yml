@@ -1,0 +1,69 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # API: recibe el circuito, lo encola y expone el estado/resultado.
+  quantum-api:
+    build: .
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      NMR_IP: ${NMR_IP:-10.10.89.177}
+      NMR_PORT: ${NMR_PORT:-8989}
+      NMR_USER: ${NMR_USER:-SpinQ001}
+      NMR_PASS: ${NMR_PASS:-123456}
+      NMR_TASK: ${NMR_TASK:-task2}
+      N8N_INTERNAL_HOST: n8n
+      JOB_TIMEOUT: ${JOB_TIMEOUT:-600}
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Worker: procesa la cola de a un job (el equipo NMR es un recurso único).
+  quantum-worker:
+    build: .
+    restart: unless-stopped
+    command: python -m app.worker
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      NMR_IP: ${NMR_IP:-10.10.89.177}
+      NMR_PORT: ${NMR_PORT:-8989}
+      NMR_USER: ${NMR_USER:-SpinQ001}
+      NMR_PASS: ${NMR_PASS:-123456}
+      NMR_TASK: ${NMR_TASK:-task2}
+      N8N_INTERNAL_HOST: n8n
+      JOB_TIMEOUT: ${JOB_TIMEOUT:-600}
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # n8n: orquestador. Si ya tienes un n8n en marcha, puedes omitir este
+  # servicio y usar el tuyo (ver README).
+  ## n8n:
+  ##   image: n8nio/n8n:latest
+  ##   restart: unless-stopped
+  ##   environment:
+  ##     N8N_HOST: localhost
+  ##     N8N_PROTOCOL: http
+  ##     N8N_PORT: 5678
+  ##     GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
+  ##   ports:
+  ##     - "5678:5678"
+  ##   volumes:
+  ##     - n8n_data:/home/node/.n8n
+  ##   depends_on:
+  ##     - quantum-api
+
+volumes:
+  redis_data:
+  n8n_data:

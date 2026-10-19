@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpinQit NMR — Ejecutar circuito</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-2: #818cf8;
+    --ok: #34d399;
+    --err: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  main {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+  h1 {
+    font-size: 1.6rem;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .sub { color: var(--muted); margin: 0 0 1.5rem; }
+  code {
+    background: #0b1220;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1px 5px;
+    font-size: 0.9em;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .drop {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 2rem 1.25rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: #0b1220; }
+  .drop p { margin: 0; color: var(--muted); }
+  .drop pre {
+    text-align: left;
+    max-height: 240px;
+    overflow: auto;
+    background: #0b1220;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    font-size: 0.82rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #cbd5e1;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-top: 1rem;
+  }
+  button {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #0b1220;
+    border: none;
+    border-radius: 8px;
+    padding: 0.65rem 1.4rem;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .examples { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+  .examples a {
+    color: var(--accent);
+    text-decoration: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.55rem 1rem;
+    font-size: 0.9rem;
+  }
+  .examples a:hover { border-color: var(--accent); background: #0b1220; }
+  #status p { margin: 0; }
+  #status.running p { color: var(--accent); }
+  #status.error p { color: var(--err); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 0.75rem;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 0.5rem 0.75rem;
+    text-align: center;
+  }
+  th { background: #0b1220; }
+  #meta { color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ejecutar circuito en el equipo NMR</h1>
+  <p class="sub">Sube un archivo <code>.py</code> con tu circuito. El servicio lo compila y lo ejecuta
+    sobre el equipo remoto; el resultado se muestra como HTML.</p>
+
+  <section class="card">
+    <div class="drop" id="drop">
+      <input type="file" id="file" accept=".py,text/x-python" hidden>
+      <p id="dropLabel">Arrastra tu archivo <code>.py</code> aquí o haz clic para seleccionarlo</p>
+      <pre id="preview" hidden></pre>
+    </div>
+
+    <div class="actions">
+      <button id="run" disabled>Ejecutar circuito</button>
+      <div class="examples">
+        <a href="/static/example.py" download="example.py">⬇ Descargar ejemplo (nativa)</a>
+        <a href="/static/example_qiskit.py" download="example_qiskit.py">⬇ Descargar ejemplo (Qiskit)</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="status" hidden>
+    <p id="statusText"></p>
+  </section>
+
+  <section class="card" id="result" hidden>
+    <h2 style="margin-top:0">Resultado</h2>
+    <p id="meta"></p>
+    <table>
+      <thead><tr><th>Estado</th><th>Counts</th><th>Probabilidad</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+  const fileInput = document.getElementById('file');
+  const drop = document.getElementById('drop');
+  const dropLabel = document.getElementById('dropLabel');
+  const preview = document.getElementById('preview');
+  const runBtn = document.getElementById('run');
+  const statusBox = document.getElementById('status');
+  const statusText = document.getElementById('statusText');
+  const resultBox = document.getElementById('result');
+  const meta = document.getElementById('meta');
+  const tbody = document.getElementById('tbody');
+
+  let code = null;
+
+  fileInput.addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    if (f) readFile(f);
+  });
+
+  drop.addEventListener('click', () => fileInput.click());
+
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    drop.classList.remove('over');
+    const f = e.dataTransfer.files[0];
+    if (f) readFile(f);
+  });
+
+  function readFile(f) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      code = reader.result;
+      dropLabel.hidden = true;
+      preview.hidden = false;
+      preview.textContent = code;
+      runBtn.disabled = false;
+    };
+    reader.readAsText(f);
+  }
+
+  runBtn.addEventListener('click', async () => {
+    if (!code) return;
+    runBtn.disabled = true;
+    resultBox.hidden = true;
+    statusBox.hidden = false;
+    statusBox.className = 'card';
+    setStatus('Encolando…');
+
+    try {
+      const res = await fetch('/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || res.statusText);
+      }
+      const { job_id } = await res.json();
+      await poll(job_id);
+    } catch (err) {
+      statusBox.className = 'card error';
+      setStatus('Error: ' + err.message);
+      runBtn.disabled = false;
+    }
+  });
+
+  function setStatus(msg) { statusText.textContent = msg; }
+
+  async function poll(jobId) {
+    for (;;) {
+      await new Promise(r => setTimeout(r, 2000));
+      let data;
+      try {
+        const res = await fetch('/jobs/' + jobId);
+        if (!res.ok) throw new Error('Error consultando el job');
+        data = await res.json();
+      } catch (err) {
+        statusBox.className = 'card error';
+        setStatus('Error: ' + err.message);
+        runBtn.disabled = false;
+        return;
+      }
+
+      if (data.status === 'finished') {
+        render(data.result);
+        statusBox.hidden = true;
+        runBtn.disabled = false;
+        return;
+      } else if (data.status === 'failed') {
+        statusBox.className = 'card error';
+        setStatus('Error: ' + (data.error || 'fallo en la ejecución'));
+        runBtn.disabled = false;
+        return;
+      } else {
+        statusBox.className = 'card running';
+        setStatus('Estado: ' + data.status + ' (job ' + jobId + ')…');
+      }
+    }
+  }
+
+  function render(result) {
+    meta.textContent = 'job_id: ' + result.job_id +
+      ' · compiler: ' + result.compiler +
+      ' · shots: ' + result.shots;
+
+    const counts = result.counts || {};
+    const probs = result.probabilities || {};
+    const keys = Object.keys(counts).length ? Object.keys(counts) : Object.keys(probs);
+
+    tbody.innerHTML = '';
+    keys.forEach(k => {
+      const tr = document.createElement('tr');
+      const td1 = document.createElement('td'); td1.textContent = k;
+      const td2 = document.createElement('td'); td2.textContent = (counts[k] ?? '-');
+      const td3 = document.createElement('td'); td3.textContent = (probs[k] ?? '-');
+      tr.append(td1, td2, td3);
+      tbody.appendChild(tr);
+    });
+
+    resultBox.hidden = false;
+  }
+</script>
+</body>
+</html>
